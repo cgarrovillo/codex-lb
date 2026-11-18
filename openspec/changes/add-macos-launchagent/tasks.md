@@ -14,4 +14,4 @@
 
 ## 3. Publish
 
-- [ ] 3.1 Commit and push the reviewed source-only branch to the user's fork.
+- [x] 3.1 Commit and push the reviewed source-only branch to the user's fork.
