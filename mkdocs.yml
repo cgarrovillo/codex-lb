@@ -68,6 +68,7 @@ nav:
   - Database: database.md
   - Deployment:
       - Docker: deployment/docker.md
+      - Native macOS: deployment/macos.md
       - Kubernetes: deployment/kubernetes.md
       - Remote Access: deployment/remote.md
   - Reference:

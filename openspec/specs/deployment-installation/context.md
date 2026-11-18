@@ -283,3 +283,22 @@ removed setting(s) ignored: CODEX_LB_LOG_UPSTREAM_REQUEST_PAYLOAD — values are
 and the equivalent incident-debugging behavior is re-enabled interactively
 with `CODEX_LB_TRACE=upstream_payload`. Startup never fails because of a
 removed setting, and the fixed built-in value is used.
+
+## Native macOS user service
+
+The optional scripts/macos_launchagent.py installer registers a user LaunchAgent.
+It targets an existing SQLite deployment and a selected installed Python.
+The foreground app.cli process remains owned by launchd. The installer does not
+install dependencies, update the application, or read credential-file contents.
+
+The property list contains paths and non-secret settings. Generated property
+lists and runtime files remain local. Installation refuses existing jobs and an
+occupied port. Operators stop manual startup before installing the service.
+
+For example, an operator previews a job with --data-dir pointing at existing
+account data, stops the manual server, and installs the same job without
+--dry-run. launchd starts it at login and restarts it after exit. A login and
+crash-restart check requires the target Mac; simulated tests do not prove it.
+
+A two-hour capacity wait is still a running process. KeepAlive cannot correct
+that condition. Account capacity and request-admission handling remain separate.
