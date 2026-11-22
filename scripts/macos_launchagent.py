@@ -25,7 +25,27 @@ URL = "http://127.0.0.1:2455"
 
 
 def installation_root() -> Path:
+    location = Path(__file__).absolute()
+    if location.parent.name == "scripts" and location.parent.parent.name == "manager":
+        return location.parents[2]
     return Path.home() / "Library/Application Support/codex-lb"
+
+
+def runtime_path(name: str) -> Path:
+    defaults = {
+        "data": Path.home() / ".codex-lb",
+        "bin": Path.home() / ".local/bin",
+        "codex_config": Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml",
+        "logs": Path.home() / "Library/Logs/codex-lb",
+        "plist": Path.home() / "Library/LaunchAgents" / f"{LABEL}.plist",
+        "locks": Path.home() / "Library/Caches/codex-lb",
+    }
+    receipt = installation_root() / "release.json"
+    if receipt.is_file():
+        record = json.loads(receipt.read_text())
+        if "paths" in record:
+            return Path(record["paths"][name])
+    return defaults[name]
 
 
 def release_record() -> dict:
@@ -37,7 +57,7 @@ def release_record() -> dict:
 
 @contextlib.contextmanager
 def operator_lock():
-    directory = Path.home() / "Library/Caches/codex-lb"
+    directory = runtime_path("locks")
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (directory / "operator.lock").open("a") as lock:
         os.fchmod(lock.fileno(), 0o600)
@@ -95,7 +115,7 @@ class Service:
 
 
 def plist_path() -> Path:
-    return Path.home() / "Library/LaunchAgents" / f"{LABEL}.plist"
+    return runtime_path("plist")
 
 
 def service_target() -> str:
@@ -297,8 +317,8 @@ def operator_status() -> None:
         "registered": job is not None,
         "http_ready": ready,
         "url": URL,
-        "data_directory": settings.get("WorkingDirectory", str(Path.home() / ".codex-lb")),
-        "log": settings.get("StandardOutPath", str(Path.home() / "Library/Logs/codex-lb/server.log")),
+        "data_directory": settings.get("WorkingDirectory", str(runtime_path("data"))),
+        "log": settings.get("StandardOutPath", str(runtime_path("logs") / "server.log")),
         "installation": str(installation_root()),
         **fields,
     }
@@ -314,7 +334,7 @@ def operator_status() -> None:
 
 def logs(follow: bool) -> None:
     settings = installed_plist() if plist_path().is_file() else {}
-    path = Path(settings.get("StandardOutPath", str(Path.home() / "Library/Logs/codex-lb/server.log")))
+    path = Path(settings.get("StandardOutPath", str(runtime_path("logs") / "server.log")))
     if not path.is_file():
         raise ValueError("No service log exists yet. Run codex-lb status.")
     arguments = ["/usr/bin/tail", "-n", "60"]
@@ -328,8 +348,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command")
     installer = commands.add_parser("install", help="Install and register the login service.")
     installer.add_argument("--python", required=True, help="Installed Codex LB Python; keep its venv path.")
-    installer.add_argument("--data-dir", default=str(Path.home() / ".codex-lb"))
-    installer.add_argument("--log-dir", default=str(Path.home() / "Library/Logs/codex-lb"))
+    installer.add_argument("--data-dir", default=str(runtime_path("data")))
+    installer.add_argument("--log-dir", default=str(runtime_path("logs")))
     installer.add_argument("--dry-run", action="store_true", help="Print the property list without installing it.")
     commands.add_parser("status", help="Report property-list and launchd registration state.")
     commands.add_parser("uninstall", help="Remove the job and preserve application data.")

@@ -2,7 +2,60 @@
 
 Use the optional native tools to run an installed release independently of the source checkout.
 The operator installs and controls the macOS login service.
-In the current migration, the assistant prepares files and tests without running service-changing commands.
+
+## Set up another Mac
+
+Install Codex CLI separately if the laptop does not have it.
+Use a Mac with Git and access to GitHub and the package registries.
+The installer obtains its own pinned Python, uv, and Bun versions.
+Homebrew, Node, an existing staging directory, and copied account data are unnecessary.
+
+Clone the fork on the other laptop:
+
+```sh
+git clone https://github.com/cgarrovillo/codex-lb.git
+cd codex-lb
+./install
+```
+
+For an existing checkout, use:
+
+```sh
+git switch main
+git pull --ff-only origin main
+./install
+```
+
+Run the activation command printed by the installer:
+
+```sh
+~/.local/bin/codex-lb-activate
+```
+
+Activation requests a new dashboard password and creates local encryption and client keys.
+It registers the service and configures Codex to use the local proxy.
+It preserves unrelated Codex settings and saves a backup before changes.
+If `CODEX_HOME` selects another Codex directory, activation uses that directory.
+If a default profile is selected, activation updates that profile's provider and model defaults too.
+
+Open [localhost:2455](http://127.0.0.1:2455), enter the dashboard password, and add your provider accounts.
+Then start a new session with `codex`.
+Each Mac has separate account data and credentials.
+Git distributes the installation recipe and shared defaults; account tokens stay local.
+
+Preparation runs no macOS service commands and changes no Codex configuration.
+Activation performs those changes only when the operator runs it.
+The committed manifest selects application version 1.24.0 and the default model and reasoning effort.
+The installer supports Apple Silicon and Intel archive selection.
+Live installation verification currently covers Apple Silicon; Intel requires a target-machine check.
+
+Use the full helper path if `~/.local/bin` is absent from the shell's `PATH`:
+
+```sh
+~/.local/bin/codex-lb status
+```
+
+The installer does not edit shell startup files.
 
 ## Daily use
 
@@ -25,7 +78,8 @@ The dashboard remains at [localhost:2455](http://127.0.0.1:2455).
 | `codex-lb stop` | Stop for this login session while preserving data and login autostart. |
 | `codex-lb start` | Reload the service definition and wait for readiness. |
 
-Run these commands from any directory.
+Run these commands from any directory when `~/.local/bin` is on `PATH`.
+Otherwise, use `~/.local/bin/codex-lb` in place of `codex-lb`.
 They do not install packages, query Git, or update the application.
 A lock prevents concurrent service changes.
 
@@ -64,7 +118,7 @@ Codex documents the provider boundary and fork path in its
 
 | Item | Location |
 |---|---|
-| Local source checkout | `~/workbench/codex-lb/` |
+| Source checkout | Any directory selected during clone |
 | Installed release and manager | `~/Library/Application Support/codex-lb/` |
 | Account data and encryption key | `~/.codex-lb/` |
 | Protected client key | `~/.codex-lb/codex-api-key.txt` |
@@ -75,10 +129,11 @@ Codex documents the provider boundary and fork path in its
 Source edits do not prevent service restart.
 The release record identifies the version, source commit, installed paths, and hashes.
 
-## Preparation
+## Migrate an existing staging installation
 
-Preparation requires the reviewed full source commit, Python, Bun, and the existing staging directory.
-Run the preparation script from the source checkout:
+This path applies only to the original staging installation.
+New laptops use `./install` above.
+Legacy preparation requires the reviewed source commit, Python, Bun, and the existing staging directory:
 
 ```sh
 /usr/local/bin/python3.13 -I -B scripts/prepare_native.py \\
@@ -97,7 +152,7 @@ Preparation does not install a LaunchAgent or copy live account data.
 It rejects a different source selection or an existing prepared release.
 The current migration retains application version 1.24.0.
 
-## Operator activation
+### Legacy operator activation
 
 The operator runs this command from a normal macOS terminal:
 
@@ -146,7 +201,12 @@ The operator runs:
 ~/.local/bin/codex-lb-activate --rollback
 ```
 
-Rollback stops and unregisters the new job before restarting the original installation.
+For a fresh installation, rollback removes the new service and restores the previous Codex configuration.
+It preserves local account data and credentials.
+A later activation can reuse successfully initialized data.
+Partial initialization remains available for inspection and is never overwritten.
+
+For a staging migration, rollback stops and unregisters the new job before restarting the original installation.
 It copies the stopped permanent data back to the legacy installation to retain newer account state.
 It retains the original backup and permanent data directory.
 It restores the original Codex credential-helper configuration.
@@ -159,13 +219,20 @@ Inspect the activation record if a filesystem failure interrupts rollback itself
 ## Git and updates
 
 The local checkout uses the fork as `origin` and the original project as `upstream`.
-Preparation selects a reviewed release commit independently of the feature branch.
+New clones need only `origin` to install.
+The fork's default branch is `main`.
+The committed manifest selects the application release independently of the checkout branch.
 A fetch, push, source edit, start, or restart does not deploy an application update.
+
+Pull management changes and run `./install` again to refresh the installed helpers.
+A matching release is verified and reused without a rebuild, restart, or credential change.
+An older migration receipt retains its existing activation and rollback behavior.
+An incompatible release requires a separate application upgrade.
 
 Review updates separately.
 Build a new release at its final path before a user-run service replacement.
 Preserve a stopped database backup and its encryption key before changing versions.
-The current migration tool handles the existing version only.
+The current tools handle the pinned version only.
 
 ## Other existing native installations
 
@@ -194,4 +261,4 @@ Logs can contain request material and authentication setup details.
 
 ---
 
-Spec: [deployment-installation](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/deployment-installation)
+Spec: [deployment-installation](../../openspec/specs/deployment-installation/spec.md)

@@ -482,3 +482,42 @@ crash-restart check requires the target Mac; simulated tests do not prove it.
 
 A two-hour capacity wait is still a running process. KeepAlive cannot correct
 that condition. Account capacity and request-admission handling remain separate.
+
+
+## Portable native macOS installation
+
+The root `./install` command prepares application version 1.24.0 from a fresh clone.
+`deploy/macos-native.json` pins its application commit, Python, uv, Bun, and Codex defaults.
+The shell entry point verifies the uv archive before using its managed Python.
+The Python preparer verifies Bun, exports the application commit, and builds locked dependencies.
+Bun runs frontend scripts itself, so a separate Node installation is unnecessary.
+The source checkout can live in any directory.
+
+The preparer never calls launchctl or changes Codex configuration.
+The operator runs the printed `codex-lb-activate` command to perform those changes.
+Fresh activation initializes database migrations and local authentication before service registration.
+The password travels through standard input to the pinned environment, outside process arguments and environment variables.
+Provider accounts remain empty until the operator adds them in the dashboard.
+No account database, encryption key, client key, or generated environment enters Git.
+
+For example, another Mac clones `cgarrovillo/codex-lb`, runs `./install`, and executes the printed activation command.
+Activation backs up Codex configuration and selects the local pool, model, reasoning effort, and credential helper.
+It preserves unrelated settings and updates a selected default profile.
+A conflicting credential configuration or unsupported TOML layout blocks activation before service changes.
+`CODEX_HOME`, when present, selects the Codex configuration directory.
+Helpers use installation paths from the local receipt; they do not contain another Mac's home directory.
+
+Repeated preparation verifies and reuses the matching installed release.
+It refreshes known manager files without changing account data or service state.
+Old receipts without a fresh-install mode retain the original migration path.
+Changing the manifest's application release requires a separate upgrade process.
+
+A fresh rollback removes the prepared service and restores Codex configuration only if later edits are absent.
+It retains initialized data for a later activation retry.
+Incomplete initialization remains available for inspection and is never overwritten.
+
+`./install --prefix /absolute/test/path` isolates release, data, commands, configuration, logs, locks, and property-list files.
+This option supports preparation tests without changing the current installation.
+An isolated prefix does not grant permission to register another service with the same label or port.
+Service activation tests simulate macOS calls instead of starting a second server.
+Real login startup, crash recovery, provider sign-in, and Intel execution require target-machine verification.

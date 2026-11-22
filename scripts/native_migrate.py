@@ -88,9 +88,9 @@ def tree_digest(path: Path) -> str:
     return result.hexdigest()
 
 
-def verify_release(record: dict) -> None:
+def verify_release(record: dict, installation: Path | None = None) -> None:
     release = Path(record["release_dir"]).resolve()
-    root = (service.installation_root() / "releases").resolve()
+    root = ((installation if installation is not None else service.installation_root()) / "releases").resolve()
     if not release.is_relative_to(root):
         raise ValueError("The selected release is outside the permanent installation.")
     if not Path(record["venv_python"]).is_file():
@@ -271,7 +271,14 @@ def main() -> int:
     args = parser.parse_args()
     try:
         with service.operator_lock():
-            if args.rollback:
+            if service.release_record().get("installation_mode") == "fresh":
+                from scripts import native_activate
+
+                if args.rollback:
+                    native_activate.rollback()
+                else:
+                    native_activate.activate()
+            elif args.rollback:
                 rollback()
             else:
                 activate()

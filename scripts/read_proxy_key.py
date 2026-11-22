@@ -5,11 +5,12 @@ from __future__ import annotations
 import os
 import stat
 import sys
-from pathlib import Path
+
+from scripts import macos_launchagent as service
 
 
 def main() -> int:
-    path = Path.home() / ".codex-lb/codex-api-key.txt"
+    path = service.runtime_path("data") / "codex-api-key.txt"
     metadata = path.stat()
     if metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) & 0o077:
         raise ValueError("The local proxy key must be owned by you with mode 0600.")

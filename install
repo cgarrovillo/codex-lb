@@ -1,0 +1,41 @@
+#!/bin/sh
+# Prepare the optional native installation. Service activation remains manual.
+set -eu
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  printf '%s\n' 'Usage: ./install [--prefix PATH]' \
+    'Prepare the pinned native release and commands without changing a running service.' \
+    'Run the activation command printed at completion to finish setup.'
+  exit 0
+fi
+if [ "$(uname -s)" != Darwin ]; then
+  printf '%s\n' 'This installer requires macOS.' >&2
+  exit 1
+fi
+
+repo_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
+manifest="$repo_dir/deploy/macos-native.json"
+architecture=$(uname -m)
+case "$architecture" in
+  arm64|x86_64) ;;
+  *) printf 'Unsupported Mac architecture: %s\n' "$architecture" >&2; exit 1 ;;
+esac
+uv_version=$(/usr/bin/plutil -extract uv.version raw -o - "$manifest")
+uv_asset=$(/usr/bin/plutil -extract "uv.$architecture.asset" raw -o - "$manifest")
+uv_digest=$(/usr/bin/plutil -extract "uv.$architecture.sha256" raw -o - "$manifest")
+python_version=$(/usr/bin/plutil -extract python raw -o - "$manifest")
+bootstrap_dir=$(mktemp -d "${TMPDIR:-/tmp}/codex-lb-bootstrap.XXXXXX")
+trap 'rm -rf "$bootstrap_dir"' EXIT HUP INT TERM
+
+printf 'Preparing codex-lb with uv %s and Python %s...\n' "$uv_version" "$python_version"
+/usr/bin/curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 180 \
+  "https://github.com/astral-sh/uv/releases/download/$uv_version/$uv_asset" \
+  -o "$bootstrap_dir/uv.tar.gz"
+actual_digest=$(/usr/bin/shasum -a 256 "$bootstrap_dir/uv.tar.gz" | /usr/bin/awk '{print $1}')
+if [ "$actual_digest" != "$uv_digest" ]; then
+  printf '%s\n' 'The uv download failed its checksum check.' >&2
+  exit 1
+fi
+/usr/bin/tar -xzf "$bootstrap_dir/uv.tar.gz" -C "$bootstrap_dir" --strip-components=1
+"$bootstrap_dir/uv" --no-config run --no-project --managed-python --python "$python_version" \
+  python -I -B "$repo_dir/scripts/install_native.py" --uv "$bootstrap_dir/uv" "$@"

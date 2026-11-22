@@ -102,6 +102,7 @@ allowed = [
   "flake.lock",
   "flake.nix",
   "frontend",
+  "install",
   "mkdocs.yml",
   "openspec",
   "pyproject.toml",
