@@ -16,7 +16,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ("__init__.py", "macos_launchagent.py", "native_migrate.py", "read_proxy_key.py")
+SCRIPTS = (
+    "__init__.py",
+    "macos_launchagent.py",
+    "native_migrate.py",
+    "read_proxy_key.py",
+    "native_activate.py",
+    "native_initialize.py",
+)
 
 
 def tree_digest(path: Path) -> str:
@@ -36,7 +43,7 @@ def write_private(path: Path, content: str, mode: int = 0o600) -> None:
         output.write(content)
 
 
-def install_tools(destination: Path, python: Path) -> None:
+def install_tools(destination: Path, python: Path, bin_dir: Path | None = None) -> None:
     manager = destination / "manager"
     launchers: dict[Path, str] = {}
     for name, module in (
@@ -49,7 +56,7 @@ def install_tools(destination: Path, python: Path) -> None:
             f"from scripts.{module} import main; raise SystemExit(main())"
         )
         command = f'#!/bin/sh\nexec {shlex.quote(str(python))} -I -B -c {shlex.quote(code)} "$@"\n'
-        target = Path.home() / ".local/bin" / name
+        target = (bin_dir if bin_dir is not None else Path.home() / ".local/bin") / name
         if target.is_symlink() or (target.exists() and target.read_text() != command):
             raise ValueError(f"Refusing to replace an existing command: {target}")
         launchers[target] = command
@@ -59,15 +66,11 @@ def install_tools(destination: Path, python: Path) -> None:
         write_private(target, command, 0o700)
 
 
-def prepare(commit: str, python: Path, bun: Path, staging: Path) -> None:
+def build_release(commit: str, python: Path, bun: Path, destination: Path, uv: Path, version: str) -> dict:
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("Select the full reviewed source commit.")
-    destination = Path.home() / "Library/Application Support/codex-lb"
     if (destination / "release.json").exists():
         raise ValueError("A prepared release already exists. Inspect it before preparing a replacement.")
-    baseline = json.loads((staging / "baseline.json").read_text())
-    if baseline["source_commit"] != commit:
-        raise ValueError("The selected commit must match the existing reviewed deployment for this migration.")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     release = destination / "releases" / f"{commit[:12]}-{stamp}"
     source = release / "source"
@@ -80,29 +83,23 @@ def prepare(commit: str, python: Path, bun: Path, staging: Path) -> None:
         files.extractall(source, filter="data")
     environment = {key: os.environ[key] for key in ("HOME", "TMPDIR", "LANG", "LC_ALL") if key in os.environ}
     environment.update(
-        PATH=f"{bun.parent}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
+        PATH=f"{bun.parent}:/usr/bin:/bin",
         SSL_CERT_FILE="/etc/ssl/cert.pem",
         UV_PROJECT_ENVIRONMENT=str(release / "venv"),
         UV_LINK_MODE="copy",
         NODE_OPTIONS="--max-old-space-size=1536",
         GOMAXPROCS="2",
     )
-    node = shutil.which("node")
-    if node:
-        environment["PATH"] = str(Path(node).parent) + ":" + environment["PATH"]
     locks = [source / "uv.lock", source / "frontend/bun.lock"]
     before = [hashlib.sha256(path.read_bytes()).hexdigest() for path in locks]
     for command in (
         [str(bun), "install", "--frozen-lockfile", "--ignore-scripts"],
-        [str(bun), "run", "build"],
+        [str(bun), "run", "--bun", "build"],
     ):
         subprocess.run(command, cwd=source / "frontend", env=environment, check=True)
-    uv = shutil.which("uv")
-    if uv is None:
-        raise ValueError("uv is required to prepare the installed release.")
     subprocess.run(
         [
-            uv,
+            str(uv),
             "--no-config",
             "sync",
             "--locked",
@@ -114,7 +111,6 @@ def prepare(commit: str, python: Path, bun: Path, staging: Path) -> None:
             "tracing",
             "--python",
             str(python),
-            "--no-managed-python",
             "--no-python-downloads",
         ],
         cwd=source,
@@ -139,7 +135,7 @@ def prepare(commit: str, python: Path, bun: Path, staging: Path) -> None:
             cwd=release,
         ).stdout
     )
-    if metadata["version"] != baseline["release"].removeprefix("v"):
+    if metadata["version"] != version:
         raise ValueError("The installed application version differs from the selected version.")
     if metadata["origin"]["url"].rstrip("/") != source.as_uri() or metadata["origin"].get("dir_info", {}).get(
         "editable"
@@ -162,6 +158,19 @@ def prepare(commit: str, python: Path, bun: Path, staging: Path) -> None:
         "built_at": datetime.now(timezone.utc).isoformat(),
         "lock_sha256": before,
     }
+    return record
+
+
+def prepare(commit: str, python: Path, bun: Path, staging: Path) -> None:
+    baseline = json.loads((staging / "baseline.json").read_text())
+    if baseline["source_commit"] != commit:
+        raise ValueError("The selected commit must match the existing reviewed deployment for this migration.")
+    uv = shutil.which("uv")
+    if uv is None:
+        raise ValueError("uv is required to prepare the installed release.")
+    destination = Path.home() / "Library/Application Support/codex-lb"
+    record = build_release(commit, python, bun, destination, Path(uv), baseline["release"].removeprefix("v"))
+    record["installation_mode"] = "legacy-migration"
     write_private(destination / "release.json", json.dumps(record, indent=2) + "\n")
     write_private(destination / "migration-source.json", json.dumps({"staging": str(staging.resolve())}) + "\n")
     archives = destination / "archives"
@@ -169,7 +178,7 @@ def prepare(commit: str, python: Path, bun: Path, staging: Path) -> None:
     subprocess.run(
         ["git", "-C", str(staging), "bundle", "create", str(archives / "staging-controls.bundle"), "--all"], check=True
     )
-    install_tools(destination, installed_python)
+    install_tools(destination, Path(record["venv_python"]))
     print("Prepared the permanent release and commands. The running service and Codex routing were unchanged.")
     print(f"Activate when ready: {Path.home() / '.local/bin/codex-lb-activate'}")
 
