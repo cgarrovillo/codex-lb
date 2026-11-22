@@ -29,6 +29,7 @@ class LaunchAgentCliTests(unittest.TestCase):
         self.python.parent.mkdir(parents=True)
         self.python.symlink_to(sys.executable)
         self.loaded = False
+        self.pid = 122
         self.bootstrap_failure = False
         self.bootstrap_timeout = False
         self.bootout_failure = False
@@ -39,6 +40,7 @@ class LaunchAgentCliTests(unittest.TestCase):
             patch.object(service.Path, "home", return_value=self.home),
             patch.object(service.subprocess, "run", side_effect=self.run_process),
             patch.object(service.socket, "create_connection", side_effect=ConnectionRefusedError),
+            patch.object(service, "http_ready", return_value=False),
         ):
             replacement.start()
             self.addCleanup(replacement.stop)
@@ -51,7 +53,7 @@ class LaunchAgentCliTests(unittest.TestCase):
         self.assertEqual(command[0], "/bin/launchctl")
         if command[1] == "print":
             if self.loaded:
-                output = "state = running\n pid = 123\n environment = {\nIGNORED_SECRET = hidden\n}\n"
+                output = f"state = running\n pid = {self.pid}\n environment = {{\nIGNORED_SECRET = hidden\n}}\n"
                 return subprocess.CompletedProcess(command, 0, output, "")
             return subprocess.CompletedProcess(command, 113, "", "Could not find service")
         if command[1] == "bootstrap":
@@ -61,6 +63,7 @@ class LaunchAgentCliTests(unittest.TestCase):
             if self.bootstrap_failure:
                 return subprocess.CompletedProcess(command, 5, "", "registration rejected")
             self.loaded = True
+            self.pid += 1
         if command[1] == "bootout":
             if self.bootout_failure:
                 return subprocess.CompletedProcess(command, 5, "", "removal rejected")
@@ -180,10 +183,17 @@ class LaunchAgentCliTests(unittest.TestCase):
         self.assertEqual(self.install()[0], 0)
         code, output, errors = self.invoke("status")
         self.assertEqual((code, errors), (0, ""))
-        self.assertEqual(json.loads(output), {"installed": True, "registered": True, "state": "running", "pid": "123"})
+        summary = json.loads(output)
+        self.assertTrue(summary["installed"])
+        self.assertTrue(summary["registered"])
+        self.assertEqual(summary["pid"], "123")
+        self.assertEqual(summary["state"], "running but unready")
         self.assertNotIn("IGNORED_SECRET", output)
         self.loaded = False
-        self.assertEqual(json.loads(self.invoke("status")[1]), {"installed": True, "registered": False})
+        summary = json.loads(self.invoke("status")[1])
+        self.assertTrue(summary["installed"])
+        self.assertFalse(summary["registered"])
+        self.assertEqual(summary["state"], "stopped")
 
     def test_missing_data_is_rejected_without_filesystem_mutations(self) -> None:
         (self.data / "encryption.key").unlink()
@@ -191,6 +201,66 @@ class LaunchAgentCliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("Select existing application data", errors)
         self.assertFalse((self.home / "Library").exists())
+
+    def test_restart_replaces_process_without_reading_git(self) -> None:
+        self.assertEqual(self.install()[0], 0)
+        with patch.object(service, "http_ready", return_value=True):
+            code, output, errors = self.invoke("restart")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("is ready", output)
+        self.assertEqual(self.pid, 124)
+        operations = [command[1] for command in self.calls if command[0] == "/bin/launchctl"]
+        self.assertLess(operations.index("bootout"), len(operations) - 1)
+        self.assertEqual(operations.count("bootstrap"), 2)
+        self.assertTrue(service.plist_path().exists())
+
+    def test_stop_preserves_plist_and_start_reloads_it(self) -> None:
+        self.assertEqual(self.install()[0], 0)
+        self.assertEqual(self.invoke("stop")[0], 0)
+        self.assertFalse(self.loaded)
+        self.assertTrue(service.plist_path().is_file())
+        with patch.object(service, "http_ready", return_value=True):
+            self.assertEqual(self.invoke("start")[0], 0)
+        self.assertTrue(self.loaded)
+        self.assertEqual((self.data / "store.db").read_bytes(), b"database sentinel")
+
+    def test_status_identifies_an_unmanaged_ready_listener(self) -> None:
+        with patch.object(service, "http_ready", return_value=True):
+            code, output, errors = self.invoke("status")
+        self.assertEqual((code, errors), (0, ""))
+        summary = json.loads(output)
+        self.assertEqual(summary["state"], "unmanaged listener")
+        self.assertFalse(summary["registered"])
+
+    def test_start_refuses_an_unmanaged_listener(self) -> None:
+        self.assertEqual(self.install()[0], 0)
+        self.loaded = False
+        before = len(self.calls)
+        with patch.object(service.socket, "create_connection"):
+            code, _, errors = self.invoke("start")
+        self.assertEqual(code, 1)
+        self.assertIn("Port 2455 is occupied", errors)
+        self.assertFalse(any(command[1] == "bootstrap" for command in self.calls[before:]))
+
+    def test_stop_does_not_report_an_unmanaged_listener_as_stopped(self) -> None:
+        with patch.object(service.socket, "create_connection"):
+            code, output, errors = self.invoke("stop")
+        self.assertEqual(code, 1)
+        self.assertNotIn("is stopped", output)
+        self.assertIn("Port 2455 is occupied", errors)
+
+    def test_restart_does_not_report_success_when_readiness_fails(self) -> None:
+        self.assertEqual(self.install()[0], 0)
+        with patch.object(service, "wait_ready", side_effect=RuntimeError("readiness failed")):
+            code, _, errors = self.invoke("restart")
+        self.assertEqual(code, 1)
+        self.assertIn("readiness failed", errors)
+
+    def test_concurrent_service_changes_are_rejected(self) -> None:
+        with service.operator_lock():
+            code, _, errors = self.invoke("stop")
+        self.assertEqual(code, 1)
+        self.assertIn("Another codex-lb command", errors)
 
     def test_missing_python_is_rejected(self) -> None:
         self.python.unlink()
