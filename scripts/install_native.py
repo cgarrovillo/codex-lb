@@ -116,9 +116,21 @@ def prepare(root: Path, uv: Path, isolated: bool) -> None:
         bins = Path(paths["bin"])
         prepare_native.install_tools(root, Path(record["venv_python"]), bins)
         print("Prepared the pinned release. Run activation to create local credentials and configure Codex.")
-    print(f"Activation: {shlex.quote(str(bins / 'codex-lb-activate'))}")
     print(f"Management commands: {bins}")
-    print("Activation asks for a dashboard password. Add your accounts in the dashboard afterward.")
+    state = root / "activation.json"
+    if state.exists():
+        phase = json.loads(state.read_text())["phase"]
+        if phase == "activated":
+            print("This installation is already activated. No activation or service restart is required.")
+            return
+        if phase != "rolled back":
+            print(
+                "An incomplete activation exists. Inspect service status and the activation record before proceeding."
+            )
+            return
+    print(f"Activation: {shlex.quote(str(bins / 'codex-lb-activate'))}")
+    if record.get("installation_mode") == "fresh":
+        print("First activation asks for a dashboard password. Add your accounts in the dashboard afterward.")
 
 
 def main() -> int:

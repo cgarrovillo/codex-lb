@@ -83,7 +83,7 @@ def build_release(commit: str, python: Path, bun: Path, destination: Path, uv: P
         files.extractall(source, filter="data")
     environment = {key: os.environ[key] for key in ("HOME", "TMPDIR", "LANG", "LC_ALL") if key in os.environ}
     environment.update(
-        PATH=f"{bun.parent}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
+        PATH=f"{bun.parent}:/usr/bin:/bin",
         SSL_CERT_FILE="/etc/ssl/cert.pem",
         UV_PROJECT_ENVIRONMENT=str(release / "venv"),
         UV_LINK_MODE="copy",
