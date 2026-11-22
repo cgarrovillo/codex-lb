@@ -261,4 +261,4 @@ Logs can contain request material and authentication setup details.
 
 ---
 
-Spec: [deployment-installation](../../openspec/specs/deployment-installation/spec.md)
+Spec: [deployment-installation](https://github.com/cgarrovillo/codex-lb/tree/main/openspec/specs/deployment-installation)

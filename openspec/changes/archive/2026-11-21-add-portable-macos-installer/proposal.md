@@ -1,7 +1,11 @@
 # Add a fresh Mac installation path
 
+## Why
+
 The existing tools migrate one Mac and require its old staging files.
 A clone on another Mac cannot reproduce the installation.
+
+## What Changes
 
 Add one optional installer with committed application and tool versions.
 Download verified tools for Apple Silicon or Intel and build the pinned application with locked dependencies.
